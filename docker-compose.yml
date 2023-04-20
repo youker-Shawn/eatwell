@@ -1,0 +1,19 @@
+version: '3'
+
+# container services
+services:
+  # ref: https://hub.docker.com/_/postgres
+  db:
+    image: postgres
+    restart: always
+    ports:
+      - "15432:5432"
+    env_file:
+      - ./.env
+    # environment:
+      # - POSTGRES_DB=eatwell
+      # - POSTGRES_USER=xxx
+      # - POSTGRES_PASSWORD=...
+  
+  # web:
+  #   build: python:3.11
