@@ -1,15 +1,180 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIRequestFactory, force_authenticate
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIRequestFactory, force_authenticate, APIClient
+
 
 from .models import Recipe
 from .views import RecipeViewSet
+from .serializers import RecipeSerializer
 
 User = get_user_model()
 
 
 # Create your tests here.
+class RecipeAPITest(TestCase):
+    """API integration test"""
+
+    def setUp(self):
+        self.client = APIClient()
+        # use create_user instead of create
+        self.test_user = User.objects.create_user(username='test', password='test')
+        self.recipe_1 = Recipe.objects.create(
+            name="Pizza",
+            ingredient="Flour, cheese, tomato sauce",
+            step="...",
+            user=self.test_user,
+        )
+        self.recipe_2 = Recipe.objects.create(
+            name="Salad",
+            ingredient="Lettuce, tomato, cucumber",
+            step="...",
+            user=self.test_user,
+        )
+        self.recipe_3 = Recipe.objects.create(
+            name="Cake",
+            ingredient="Flour, sugar, eggs",
+            step="...",
+            user=self.test_user,
+        )
+        self.recipe_other_person = Recipe.objects.create(
+            name="其他人的菜谱",
+            ingredient="...",
+            step="...",
+            user=User.objects.create_user(username='other', password='other'),
+        )
+
+    def test_get_all_recipes_by_user(self):
+        # for passing SessionAuthentication
+        self.client.login(username='test', password='test')
+        response = self.client.get(reverse('recipe-list'))
+        recipes = Recipe.objects.filter(user=self.test_user)
+        serializer = RecipeSerializer(recipes, many=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+        self.assertEqual(response.data, serializer.data)
+
+    def test_get_all_recipes_withot_auth(self):
+        response = self.client.get(reverse('recipe-list'))
+        # SessionAuthentication returns 403 ,BasicAuthentication returns 401
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_single_recipe(self):
+        self.client.login(username='test', password='test')
+        response = self.client.get(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk})
+        )
+        recipe = Recipe.objects.get(pk=self.recipe_1.pk)
+        serializer = RecipeSerializer(recipe)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, serializer.data)
+
+    def test_get_single_withot_auth(self):
+        response = self.client.get(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk})
+        )
+        # SessionAuthentication returns 403 ,BasicAuthentication returns 401
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_new_recipe(self):
+        self.client.login(username='test', password='test')
+        valid_data = {
+            'name': 'Soup',
+            'ingredient': 'Water, salt, vegetables',
+            'step': '...',
+        }
+        response = self.client.post(reverse('recipe-list'), data=valid_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], valid_data["name"])
+        self.assertEqual(response.data["ingredient"], valid_data["ingredient"])
+        self.assertEqual(response.data["step"], valid_data["step"])
+        self.assertEqual(response.data["user"], self.test_user.pk)
+
+    def test_create_recipe_without_auth(self):
+        valid_data = {
+            'name': 'Soup',
+            'ingredient': 'Water, salt, vegetables',
+            'step': '...',
+        }
+        response = self.client.post(reverse('recipe-list'), data=valid_data)
+        # SessionAuthentication returns 403 ,BasicAuthentication returns 401
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_invalid_recipe(self):
+        self.client.login(username='test', password='test')
+        invalid_data = {'name': '', 'ingredient': 'Nothing'}
+        response = self.client.post(reverse('recipe-list'), data=invalid_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_recipe(self):
+        self.client.login(username='test', password='test')
+        response = self.client.delete(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk})
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        recipe = Recipe.objects.filter(id=self.recipe_1.id).first()
+        self.assertIsNone(recipe)
+
+    def test_delete_recipe_without_auth(self):
+        response = self.client.delete(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk})
+        )
+        # SessionAuthentication returns 403 ,BasicAuthentication returns 401
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_recipe(self):
+        self.client.login(username='test', password='test')
+        update_data = {
+            'name': self.recipe_1.name,
+            'ingredient': self.recipe_1.ingredient + ', onion',
+            'step': '...',
+        }
+        response = self.client.put(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk}),
+            data=update_data,
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], update_data["name"])
+        self.assertEqual(response.data["ingredient"], update_data["ingredient"])
+        self.assertEqual(response.data["step"], update_data["step"])
+        self.assertEqual(response.data["user"], self.test_user.pk)
+
+    def test_update_recipe_without_auth(self):
+        update_data = {
+            'name': self.recipe_1.name,
+            'ingredient': self.recipe_1.ingredient + ', onion',
+            'step': '...',
+        }
+        response = self.client.put(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk}),
+            data=update_data,
+            format='json',
+        )
+        # SessionAuthentication returns 403 ,BasicAuthentication returns 401
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_partial_update_recipe(self):
+        self.client.login(username='test', password='test')
+        partial_data = {
+            'name': self.recipe_1.name + " [new]",
+        }
+        response = self.client.patch(
+            reverse('recipe-detail', kwargs={'pk': self.recipe_1.pk}),
+            data=partial_data,
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], partial_data['name'])
+
+
 class RecipeViewTest(TestCase):
+    """View functions unit test"""
+
     def setUp(self) -> None:
         self.factory = APIRequestFactory()
         self.recipe_data = {
@@ -86,7 +251,9 @@ class RecipeViewTest(TestCase):
             user=self.test_user, name="食谱2", ingredient="...", step="..."
         )
         Recipe.objects.create(
-            user=User.objects.create(username='test_another', password='test_another'),
+            user=User.objects.create_user(
+                username='test_another', password='test_another'
+            ),
             name="其他人的食谱",
             ingredient="...",
             step="...",

@@ -1,4 +1,6 @@
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import SessionAuthentication
 
 from .serializers import RecipeSerializer
 from .models import Recipe
@@ -8,6 +10,13 @@ from .models import Recipe
 class RecipeViewSet(ModelViewSet):
     serializer_class = RecipeSerializer
     queryset = Recipe.objects.all()
+
+    authentication_classes = [
+        SessionAuthentication,
+    ]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
