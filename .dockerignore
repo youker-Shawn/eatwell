@@ -1,0 +1,8 @@
+*.md
+*.sqlite3
+
+# Ignore Django migration files
+**/migrations/
+
+# Ignore node_modules directory
+node_modules
